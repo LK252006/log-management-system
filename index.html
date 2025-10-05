@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Centralized Log Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+    <style>
+        body {
+            padding: 20px;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .log-table { max-height: 500px; overflow-y: auto; }
+        textarea { resize: none; }
+        .highlight {
+            background-color: yellow;
+            transition: background-color 3s ease;
+        }
+
+        /* Dark mode styles */
+        body.dark-mode {
+            background-color: #121212;
+            color: #e0e0e0;
+        }
+        body.dark-mode table {
+            color: #e0e0e0;
+        }
+        body.dark-mode .table-dark {
+            background-color: #1e1e1e !important;
+            color: #e0e0e0 !important;
+        }
+        body.dark-mode .table-striped > tbody > tr:nth-of-type(odd) {
+            --bs-table-accent-bg: #1c1c1c;
+        }
+        body.dark-mode .btn {
+            border-color: #444;
+        }
+        body.dark-mode .form-control, body.dark-mode .form-select {
+            background-color: #1c1c1c;
+            color: #e0e0e0;
+            border-color: #444;
+        }
+        body.dark-mode .card {
+            background-color: #1c1c1c;
+            color: #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1 class="mb-4">Centralized Log Dashboard</h1>
+    <div class="mb-3">
+        <a href="{{ url_for('logout') }}" class="btn btn-danger">Logout</a>
+        <a href="{{ url_for('export_json') }}" class="btn btn-primary">Export Logs (JSON)</a>
+        <button id="toggleRefresh" class="btn btn-warning">Pause Auto-Refresh</button>
+        <button id="toggleDarkMode" class="btn btn-secondary">Toggle Dark Mode</button>
+    </div>
+
+    <!-- Filters -->
+    <form id="filterForm" method="get" class="row g-3 mb-4">
+        <div class="col-md-3">
+            <select class="form-select" name="level">
+                <option value="">All Levels</option>
+                {% for lvl in levels %}
+                    <option value="{{ lvl }}" {% if request.args.get('level') == lvl %}selected{% endif %}>{{ lvl }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select class="form-select" name="source">
+                <option value="">All Sources</option>
+                {% for src in sources %}
+                    <option value="{{ src }}" {% if request.args.get('source') == src %}selected{% endif %}>{{ src }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-4">
+            <input type="text" name="search" class="form-control" placeholder="Search message..." value="{{ request.args.get('search') }}">
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-secondary w-100">Filter</button>
+        </div>
+    </form>
+
+    <!-- Toggle Button for Add Log Form -->
+    <div class="mb-3">
+        <button class="btn btn-info" type="button" data-bs-toggle="collapse" data-bs-target="#addLogForm" aria-expanded="false" aria-controls="addLogForm">
+            Toggle Add Log Form
+        </button>
+    </div>
+
+    <!-- Add Log Form -->
+    <div class="collapse mb-4" id="addLogForm">
+        <div class="card">
+            <div class="card-header">Add New Log</div>
+            <div class="card-body">
+                <form action="{{ url_for('add_log') }}" method="POST" class="row g-3">
+                    <div class="col-md-4">
+                        <input type="text" name="source" class="form-control" placeholder="Source" required>
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select" name="level" required>
+                            <option value="">Select Level</option>
+                            <option value="INFO">INFO</option>
+                            <option value="WARNING">WARNING</option>
+                            <option value="ERROR">ERROR</option>
+                            <option value="DEBUG">DEBUG</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <textarea name="message" class="form-control" placeholder="Message" rows="1" required></textarea>
+                    </div>
+                    <div class="col-md-1">
+                        <button type="submit" class="btn btn-success w-100">Add</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Table -->
+    <div class="log-table table-responsive" id="logContainer">
+        <table class="table table-striped table-bordered" id="logsTable">
+            <thead class="table-dark">
+            <tr>
+                <th>ID</th>
+                <th>Timestamp</th>
+                <th>Source</th>
+                <th>Level</th>
+                <th>Message</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for log in logs %}
+            <tr data-log-id="{{ log.id }}">
+                <td>{{ log.id }}</td>
+                <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                <td>{{ log.source }}</td>
+                <td>{{ log.level }}</td>
+                <td>{{ log.message }}</td>
+            </tr>
+            {% endfor %}
+            {% if logs|length == 0 %}
+            <tr>
+                <td colspan="5" class="text-center">No logs found</td>
+            </tr>
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    let lastLogId = {% if logs|length > 0 %}{{ logs[0].id }}{% else %}0{% endif %};
+    let autoRefresh = true;
+    let darkMode = false;
+
+    // Toggle Auto-Refresh
+    document.getElementById("toggleRefresh").addEventListener("click", () => {
+        autoRefresh = !autoRefresh;
+        document.getElementById("toggleRefresh").textContent = autoRefresh ? "Pause Auto-Refresh" : "Resume Auto-Refresh";
+    });
+
+    // Toggle Dark Mode
+    document.getElementById("toggleDarkMode").addEventListener("click", () => {
+        darkMode = !darkMode;
+        document.body.classList.toggle("dark-mode", darkMode);
+    });
+
+    async function fetchLogs() {
+        if (!autoRefresh) return;
+
+        try {
+            const form = document.getElementById('filterForm');
+            const params = new URLSearchParams(new FormData(form)).toString();
+            const response = await fetch(`{{ url_for('export_json') }}?${params}`);
+            const logs = await response.json();
+            const tbody = document.querySelector("#logsTable tbody");
+            tbody.innerHTML = "";
+
+            if (logs.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center">No logs found</td></tr>`;
+                return;
+            }
+
+            logs.forEach(log => {
+                const row = document.createElement("tr");
+                row.dataset.logId = log.id;
+
+                const levelFilter = form.level.value;
+                const sourceFilter = form.source.value.toLowerCase();
+                const searchTerm = form.search.value.toLowerCase();
+
+                const matchesFilter =
+                    (!levelFilter || log.level === levelFilter) &&
+                    (!sourceFilter || log.source.toLowerCase().includes(sourceFilter)) &&
+                    (!searchTerm || log.message.toLowerCase().includes(searchTerm));
+
+                if (log.id > lastLogId) {
+                    row.classList.add("highlight");
+                    setTimeout(() => row.classList.remove("highlight"), 3000);
+
+                    if (matchesFilter) {
+                        row.scrollIntoView({ behavior: "smooth", block: "end" });
+                    }
+                }
+
+                row.innerHTML = `
+                    <td>${log.id}</td>
+                    <td>${new Date(log.timestamp).toLocaleString()}</td>
+                    <td>${log.source}</td>
+                    <td>${log.level}</td>
+                    <td>${log.message}</td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            lastLogId = Math.max(lastLogId, ...logs.map(l => l.id));
+        } catch (error) {
+            console.error("Failed to fetch logs:", error);
+        }
+    }
+
+    setInterval(fetchLogs, 5000);
+</script>
+</body>
+</html>
